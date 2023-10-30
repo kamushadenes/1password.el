@@ -43,11 +43,6 @@
 
 1Password is soooooo slow from here.")
 
-(defun 1password--get-command-output (command &rest args)
-  "Execute COMMAND with ARGS and return its output as a string."
-  (with-output-to-string
-    (apply 'call-process command nil standard-output nil args)))
-
 (defgroup 1password nil
   "Use 1Password from Emacs."
   :group 'tools)
@@ -56,6 +51,25 @@
   "The 1Password command-line tool."
   :group '1password
   :type 'string)
+
+(defvar 1password--session-token nil
+  "Stores the session token from 1password-manual-signin")
+
+(defun 1password-manual-signin (password)
+    "Prompt for a password, sign into 1password, and then set 1password--session-token with the resulting password"
+    (interactive (list (read-passwd "1password password: ")))
+    (let
+        ((token (with-temp-buffer
+                  (if (zerop (call-process-region password nil 1password-op-executable nil t nil "signin" "--raw"))
+                      (buffer-string)
+                    (error "'op signin --raw' failed: %s" (buffer-string))))))
+      (setq 1password--session-token token)
+      (message "Saved 1password session token")))
+
+(defun 1password--call-op (&rest args)
+  "Execute op with args"
+  (let* ((session-args (if 1password--session-token `("--session" ,1password--session-token) nil)))
+    (apply 'call-process 1password-op-executable nil t nil (append args session-args))))
 
 (defun 1password--json-read (string)
   "Read JSON from STRING."
@@ -71,7 +85,7 @@
     (if cached-items
         (cdr cached-items)
       (with-temp-buffer
-        (if (zerop (call-process 1password-op-executable nil t nil "item" "list" "--format" "json"))
+        (if (zerop (1password--call-op "item" "list" "--format" "json"))
             (progn
               (goto-char (point-min))
               (let ((items (1password--json-read (buffer-string))))
@@ -86,7 +100,7 @@
     (if cached-item
         (cdr cached-item)
       (with-temp-buffer
-        (if (zerop (call-process 1password-op-executable nil t nil "item" "get" name "--format" "json"))
+        (if (zerop (1password--call-op "item" "get" name "--format" "json"))
             (progn
               (goto-char (point-min))
               (let ((item (1password--json-read (buffer-string))))
